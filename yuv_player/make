@@ -1,2 +1,0 @@
-rm -f yuv_player
-g++ -o yuv_player -g yuv_player.cpp `sdl-config --cflags --libs`
