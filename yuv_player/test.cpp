@@ -1,82 +1,62 @@
-#include<SDL/SDL.h>
-#include<stdio.h>
+#include <stdio.h>
+#include "yuv_player.h"
+#include "../../m_stdio.h/m_stdio.h"
+#include <SDL/SDL.h>
 
-
-int main(int argc , char* argv[])
-{
-	int i = 1;
-	int x, y;
-	int w = 1920;
-	int h = 1080;
-	char c = 'n';
-	FILE* fp;
-	char filename[64];
-	unsigned char* pY;
-	unsigned char* pU;
-	unsigned char* pV;
-	SDL_Rect rect;
-	if (SDL_Init(SDL_INIT_VIDEO) < 0)
+int main(int argc,char* argv[])
+{	
+	set_log_filename("yuv_player");
+	set_log_level(FLOG_NORMAL);
+	if(argc <2)
 	{
-		fprintf(stderr, "can not initialize SDL:%s\n", SDL_GetError());
-		exit(1);
+		log_to_file(FLOG_ERR,"eg:./yuv_player filename");
+		return -1;	
+	}	
+	Render_Yuv t_ryuv;
+	unsigned char* src_content = NULL;
+	FILE* fp=NULL;
+
+	//t_ryuv.set_screenwidth(720);
+	//t_ryuv.set_screenheight(576);	
+	t_ryuv.set_videowidth(1920);
+	t_ryuv.set_videoheight(1080);
+	t_ryuv.init("video_show");
+		
+	fp=fopen64(argv[1],"rb");
+	if(!fp)
+	{
+		log_to_file(FLOG_ERR,"open %s failed",argv[1]);
+		return -1;	
 	}
-	atexit(SDL_Quit);
-	SDL_Surface* screen = SDL_SetVideoMode(w, h, 32, SDL_HWSURFACE | SDL_DOUBLEBUF | SDL_ANYFORMAT | SDL_RESIZABLE);
-	SDL_WM_SetCaption ("shi pin jian kong", NULL);    
-
-	if (screen == NULL)
+	
+	//
+	src_content = (unsigned char*)malloc(sizeof(unsigned char)*1920*1080*3/2);
+	if(!src_content)
 	{
-		fprintf(stderr, "create surface error!\n");
-		exit(1);
-	}
-	SDL_Overlay* overlay = SDL_CreateYUVOverlay(w, h, SDL_YV12_OVERLAY, screen);
-	if (overlay == NULL)
+		log_to_file(FLOG_ERR,"new memory failed");
+		goto bail;		
+	}	
+	
+	while(!feof(fp))
 	{
-		fprintf(stderr, "create overlay error!\n");
-		exit(1);
-	}
-	printf("w:%d, h:%d, planes:%d\n", overlay->w,overlay->h, overlay->planes);
-	printf("pitches:%d, %d, %d\n", overlay->pitches[0], overlay->pitches[1],overlay->pitches[2]);
-	pY = (unsigned char*)malloc(w*h);
-	pU = (unsigned char*)malloc(w*h/4);
-	pV = (unsigned char*)malloc(w*h/4);
-	sprintf(filename, argv[1], strlen(argv[1]));
-	printf("%s\n", filename);
-	fp = fopen(filename, "rb");
-	if (fp == NULL)
-	{
-		fprintf(stderr, "open file error!\n");
-		exit(1);
-	}
-	while (!feof(fp))
-	{
-		SDL_LockSurface(screen);
-		SDL_LockYUVOverlay(overlay);
-
-		fread(pY, 1, w*h, fp);
-		fread(pU, 1, w*h/4, fp);
-		fread(pV, 1, w*h/4, fp);
-		memcpy(overlay->pixels[0], pY, w*h);
-		memcpy(overlay->pixels[1], pV, w*h/4);
-		memcpy(overlay->pixels[2], pU, w*h/4);
-
-		SDL_UnlockYUVOverlay(overlay);
-		SDL_UnlockSurface(screen);
-		rect.w = w;
-		rect.h = h;
-		rect.x = rect.y =0;
-		SDL_DisplayYUVOverlay(overlay, &rect);
+		fread(src_content,1,1920*1080*3/2,fp);
+		t_ryuv.display_yuv(src_content,NULL);			
+		if(t_ryuv.m_eventflag==false)
+			break;
 		SDL_Delay(40);
-		//i += 1;
-
 	}
-	free(pY);
-	free(pU);
-	free(pV);
-	while (c != 'q')
-		scanf("%c", &c);
-	SDL_FreeYUVOverlay(overlay);
-	SDL_FreeSurface(screen);
-	SDL_Quit();
+	
+bail:
+	if(src_content)
+	{
+		free(src_content);
+		src_content=NULL;
+	}
+	if(fp)
+	{
+		fclose(fp);
+		fp=NULL;
+	}
+	
 	return 0;
 }

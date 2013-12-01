@@ -1,6 +1,9 @@
-#include <SDL/SDL.h>
 #include "yuv_player.h"
-#include "../../m_stdio.h"
+#include "../../m_stdio.h/m_stdio.h"
+#include <SDL/SDL.h>
+#include <unistd.h>
+
+int	event_loop(void* para);
 
 Render_Yuv::Render_Yuv()
 {
@@ -13,6 +16,8 @@ Render_Yuv::Render_Yuv()
 	m_bitsperpixel=0;
 	m_videowidth=1920;
 	m_videoheight=1080;
+	m_eventthread=NULL;
+	m_eventflag=false;
 }
 
 Render_Yuv::~Render_Yuv()
@@ -27,6 +32,13 @@ Render_Yuv::~Render_Yuv()
 		SDL_FreeYUVOverlay(m_overlay);
 		m_overlay=NULL;
 	}
+	m_eventflag=false;
+	sleep(1);
+	if(m_eventflag)
+	{
+		SDL_KillThread(m_eventthread);
+		m_eventthread=NULL;
+	}	
 }
 
 void Render_Yuv::set_screenwidth(int width)
@@ -56,7 +68,7 @@ void Render_Yuv::set_videoheight(int videoheight)
 
 int Render_Yuv::init(const char* title,const char* icon)
 {
-	if (SDL_Init(SDL_INIT_EVERYTHING)<0)
+	if (SDL_Init(SDL_INIT_EVERYTHING | SDL_INIT_EVENTTHREAD)<0)
 	{
 		log_to_file(FLOG_ERR,"can not initialize SDL:%s",SDL_GetError());		
 		return -1;
@@ -74,16 +86,16 @@ int Render_Yuv::init(const char* title,const char* icon)
 	//check hardware
 	if(m_screen->flags&SDL_HWSURFACE == SDL_HWSURFACE)
 	{
-		log_to_file(FLOG_INFO,"memory in hardware");
+		log_to_file(FLOG_NORMAL,"memory in hardware");
 	}
 	else
 	{	
-		log_to_file(FLOG_INFO,"memory in memory");	
+		log_to_file(FLOG_NORMAL,"memory in memory");	
 	}
 	
 	if(m_screen->flags&SDL_DOUBLEBUF == SDL_DOUBLEBUF)
 	{
-		log_to_file(FLOG_INFO,"double buffer in hardware");
+		log_to_file(FLOG_NORMAL,"double buffer in hardware");
 	}
 	
 	//init overlay	 	
@@ -98,18 +110,31 @@ int Render_Yuv::init(const char* title,const char* icon)
 		log_to_file(FLOG_ERR,"create overlay failed");
 		return -4;
 	}
-
+	
+	//create a thread
+	m_eventthread = SDL_CreateThread(event_loop,(void*)this);
+	usleep(10000);
+	if(!m_eventthread || !m_eventflag)
+	{
+		log_to_file(FLOG_ERR,"create event thread failed");
+		return -5;
+	}	
+	
 	return 0;	
 		
 }
 
-void	Render_Yuv::display_yuv(const unsigned char* p_src,const unsigned char*	 fmt)
+void	Render_Yuv::display_yuv(unsigned char* p_src,const char*	 fmt)
 {
 	//todo convert fmt to YV12
-	if(strcmp(fmt,"YV12")!=0)
+
+	if(fmt)
 	{
-		log_to_file(FLOG_ERR,"can not support format ,just yv12");
-		return ;
+		if(strcmp(fmt,"YV12")!=0)
+		{
+			log_to_file(FLOG_ERR,"can not support format ,just yv12");
+			return ;
+		}
 	}
 
 	//SDL_LockSurface(m_screen);
@@ -118,7 +143,7 @@ void	Render_Yuv::display_yuv(const unsigned char* p_src,const unsigned char*	 fm
 	
 	unsigned char* py = p_src;
 	unsigned char* pu = p_src+m_videowidth*m_videoheight;
-	unsigned char* pv = p_u+(m_videowidth*m_videoheight)/4;
+	unsigned char* pv = pu+(m_videowidth*m_videoheight)/4;
 
 		
 	memcpy(m_overlay->pixels[0],py,m_videowidth*m_videoheight);
@@ -128,11 +153,49 @@ void	Render_Yuv::display_yuv(const unsigned char* p_src,const unsigned char*	 fm
 	SDL_UnlockYUVOverlay(m_overlay);
 	//SDL_UnlockSurface(m_screen);
 	
-	rect.w = m_videowidth;
-	rect.h = m_videoheight;
-	rect.x = rect.y =0;	
+	m_rect.w = m_videowidth;
+	m_rect.h = m_videoheight;
+	m_rect.x = m_rect.y =0;	
 
 	SDL_DisplayYUVOverlay(m_overlay, &m_rect);
 		
 }
 	
+int	event_loop(void* para)
+{
+	Render_Yuv *t_pare=(Render_Yuv*) para;
+	if(!para)
+	{
+		log_to_file(FLOG_ERR,"event_loop para is NULL");
+		return -1;
+	}
+	t_pare->m_eventflag=true;
+	SDL_Event t_event;
+	while(t_pare->m_eventflag)
+	{
+		while(SDL_PollEvent(&t_event))
+		{
+			switch(t_event.type)
+			{
+				case SDL_QUIT:
+					t_pare->m_eventflag=false;
+					break;
+				case SDL_KEYUP:
+					switch(t_event.key.keysym.sym)
+					{
+						case SDLK_ESCAPE:
+							log_to_file(FLOG_DEBUG,"press esc");
+							t_pare->m_eventflag=false;
+							break;
+					}
+				
+			//resize the programe size but need to resize the video frame	
+			case SDL_VIDEORESIZE:
+               t_pare->m_screen = SDL_SetVideoMode(t_event.resize.w, t_event.resize.h, 0,
+                                          SDL_HWSURFACE|SDL_RESIZABLE|SDL_ASYNCBLIT|SDL_HWACCEL);
+                t_pare->m_swidth = t_event.resize.w;
+                t_pare->m_sheight = t_event.resize.h;			
+			}			
+		}	
+	}		
+}
